@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IconForge — 192x192 & 512x512 PWA Icon Generator</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- JSZip for client-side ZIP archive creation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Checkerboard pattern for transparency preview */
+        .checkerboard {
+            background-color: #ffffff;
+            background-image: 
+                linear-gradient(45deg, #e2e8f0 25%, transparent 25%), 
+                linear-gradient(-45deg, #e2e8f0 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #e2e8f0 75%), 
+                linear-gradient(-45deg, transparent 75%, #e2e8f0 75%);
+            background-size: 16px 16px;
+            background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+        }
+        @media (prefers-color-scheme: dark) {
+            .checkerboard-dark {
+                background-color: #1e293b;
+                background-image: 
+                    linear-gradient(45deg, #0f172a 25%, transparent 25%), 
+                    linear-gradient(-45deg, #0f172a 25%, transparent 25%), 
+                    linear-gradient(45deg, transparent 75%, #0f172a 75%), 
+                    linear-gradient(-45deg, transparent 75%, #0f172a 75%);
+                background-size: 16px 16px;
+                background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+            }
+        }
+        /* Custom range slider styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #4f46e5;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #cbd5e1;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white">
+
+    <!-- Toast Notification Container (Replaces alert()) -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-brand-600 flex items-center justify-center text-white shadow-sm">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight text-slate-900 leading-none">IconForge</h1>
+                    <p class="text-xs text-slate-500 mt-0.5">PWA & App Icon ZIP Generator (192px & 512px)</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button id="btn-sample" type="button" class="text-xs font-medium text-slate-600 hover:text-brand-600 bg-slate-100 hover:bg-brand-50 px-3 py-2 rounded-lg transition-colors">
+                    Load Sample Logo
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
+            
+            <!-- Left Column: Upload & Customization Controls (5 cols on lg) -->
+            <div class="lg:col-span-5 space-y-6">
+                
+                <!-- 1. Dropzone Card -->
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-semibold text-slate-800 uppercase tracking-wider">1. Source Image</h2>
+                        <span id="source-meta" class="text-xs font-mono text-slate-500 hidden"></span>
+                    </div>
+                    
+                    <div id="dropzone" class="relative border-2 border-dashed border-slate-300 hover:border-brand-500 bg-slate-50/50 hover:bg-brand-50/30 rounded-xl p-6 text-center cursor-pointer transition-all group">
+                        <input type="file" id="file-input" accept="image/png, image/jpeg, image/webp, image/gif, image/svg+xml" class="hidden">
+                        
+                        <div class="w-12 h-12 rounded-full bg-white border border-slate-200 shadow-xs flex items-center justify-center mx-auto mb-3 group-hover:scale-105 transition-transform text-brand-600">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                            </svg>
+                        </div>
+                        <p class="text-sm font-medium text-slate-700">
+                            <span class="text-brand-600 font-semibold">Click to upload</span> or drag & drop
+                        </p>
+                        <p class="text-xs text-slate-500 mt-1">PNG, JPG, WEBP, SVG, or GIF</p>
+                    </div>
+                </div>
+
+                <!-- 2. Customization Controls Card -->
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-5">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-sm font-semibold text-slate-800 uppercase tracking-wider">2. Icon Styling</h2>
+                        <button id="btn-reset" type="button" class="text-xs font-medium text-slate-500 hover:text-slate-800 underline">
+                            Reset Defaults
+                        </button>
+                    </div>
+
+                    <!-- Fit Mode -->
+                    <div>
+                        <label class="block text-xs font-medium text-slate-700 mb-2">Image Fit Mode</label>
+                        <div class="grid grid-cols-3 gap-2 p-1 bg-slate-100 rounded-xl">
+                            <button type="button" data-fit="contain" class="fit-btn py-2 px-3 rounded-lg text-xs font-semibold transition-all bg-white text-brand-600 shadow-xs">
+                                Contain
+                            </button>
+                            <button type="button" data-fit="cover" class="fit-btn py-2 px-3 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 transition-all">
+                                Cover
+                            </button>
+                            <button type="button" data-fit="stretch" class="fit-btn py-2 px-3 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 transition-all">
+                                Stretch
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Padding Slider -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="padding-slider" class="text-xs font-medium text-slate-700">Inner Padding</label>
+                            <span id="padding-value" class="text-xs font-mono text-slate-500">0%</span>
+                        </div>
+                        <input type="range" id="padding-slider" min="0" max="35" value="0" class="w-full">
+                    </div>
+
+                    <!-- Corner Radius Slider & Squircle Preset -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="radius-slider" class="text-xs font-medium text-slate-700">Corner Radius (Mask)</label>
+                            <div class="flex items-center gap-2">
+                                <button type="button" id="btn-squircle" class="text-[11px] px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition-colors">
+                                    App Icon (22%)
+                                </button>
+                                <button type="button" id="btn-circle" class="text-[11px] px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition-colors">
+                                    Circle (50%)
+                                </button>
+                                <span id="radius-value" class="text-xs font-mono text-slate-500 w-8 text-right">0%</span>
+                            </div>
+                        </div>
+                        <input type="range" id="radius-slider" min="0" max="50" value="0" class="w-full">
+                    </div>
+
+                    <!-- Background Color / Transparency -->
+                    <div class="pt-1 border-t border-slate-100">
+                        <div class="flex items-center justify-between mb-2.5">
+                            <label class="text-xs font-medium text-slate-700">Background Fill</label>
+                            <label class="inline-flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="bg-transparent" checked class="w-4 h-4 rounded text-brand-600 focus:ring-brand-500 border-slate-300">
+                                <span class="text-xs text-slate-600 font-medium">Transparent</span>
+                            </label>
+                        </div>
+                        
+                        <div id="color-picker-row" class="flex items-center gap-3 opacity-40 pointer-events-none transition-opacity">
+                            <input type="color" id="bg-color" value="#ffffff" class="w-10 h-9 rounded-lg border border-slate-300 cursor-pointer p-0.5 bg-white">
+                            <input type="text" id="bg-hex" value="#FFFFFF" maxlength="7" class="flex-1 text-xs font-mono uppercase bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-700 focus:outline-none focus:border-brand-500">
+                            <div class="flex gap-1.5">
+                                <button type="button" data-color="#ffffff" class="swatch-btn w-6 h-6 rounded-md border border-slate-300 bg-white" title="White"></button>
+                                <button type="button" data-color="#0f172a" class="swatch-btn w-6 h-6 rounded-md border border-slate-300 bg-slate-900" title="Slate Dark"></button>
+                                <button type="button" data-color="#4f46e5" class="swatch-btn w-6 h-6 rounded-md border border-slate-300 bg-indigo-600" title="Indigo"></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Output Filename Prefix -->
+                    <div class="pt-1 border-t border-slate-100">
+                        <label for="filename-prefix" class="block text-xs font-medium text-slate-700 mb-1.5">Filename Prefix</label>
+                        <div class="flex items-center">
+                            <input type="text" id="filename-prefix" value="icon" placeholder="icon" class="w-full text-sm font-mono bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:border-brand-500">
+                        </div>
+                        <p class="text-[11px] text-slate-500 mt-1.5 font-mono">
+                            Output: <span id="preview-name-192" class="text-slate-700">icon-192x192.png</span>, <span id="preview-name-512" class="text-slate-700">icon-512x512.png</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Live Previews & ZIP Export (7 cols on lg) -->
+            <div class="lg:col-span-7 space-y-6">
+                
+                <!-- Export Banner Card -->
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-base font-bold text-slate-900">Ready to Export Archive</h2>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                2 PNGs
+                            </span>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-1">
+                            Bundled into <span id="zip-filename-label" class="font-mono font-medium text-slate-700">icons.zip</span> with high-quality Lanczos/bicubic canvas resampling.
+                        </p>
+                    </div>
+
+                    <button id="btn-download-zip" type="button" class="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 active:scale-[0.99] text-white font-semibold text-sm px-5 py-3 rounded-xl shadow-sm shadow-brand-600/20 transition-all cursor-pointer">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                        </svg>
+                        <span>Download ZIP (2 PNGs)</span>
+                    </button>
+                </div>
+
+                <!-- Live Preview Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    
+                    <!-- 192x192 Preview Card -->
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                        <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
+                            <div>
+                                <span class="text-xs font-bold text-slate-800 font-mono">192 × 192 px</span>
+                                <span id="size-192" class="ml-2 text-[11px] font-mono text-slate-500">— KB</span>
+                            </div>
+                            <button id="btn-dl-192" type="button" class="text-xs font-medium text-brand-600 hover:text-brand-700 hover:underline flex items-center gap-1">
+                                <span>PNG</span>
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                            </button>
+                        </div>
+                        <div class="flex-1 p-6 checkerboard flex items-center justify-center min-h-[260px]">
+                            <!-- Actual 192x192 Canvas -->
+                            <canvas id="canvas-192" width="192" height="192" class="shadow-md max-w-full h-auto"></canvas>
+                        </div>
+                        <div class="px-4 py-2.5 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-500 flex justify-between">
+                            <span>PWA Home Screen / Android</span>
+                            <span id="file-label-192" class="font-mono text-slate-700">icon-192x192.png</span>
+                        </div>
+                    </div>
+
+                    <!-- 512x512 Preview Card -->
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                        <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
+                            <div>
+                                <span class="text-xs font-bold text-slate-800 font-mono">512 × 512 px</span>
+                                <span id="size-512" class="ml-2 text-[11px] font-mono text-slate-500">— KB</span>
+                            </div>
+                            <button id="btn-dl-512" type="button" class="text-xs font-medium text-brand-600 hover:text-brand-700 hover:underline flex items-center gap-1">
+                                <span>PNG</span>
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                            </button>
+                        </div>
+                        <div class="flex-1 p-6 checkerboard flex items-center justify-center min-h-[260px]">
+                            <!-- Actual 512x512 Canvas scaled visually via CSS while keeping native 512x512 resolution -->
+                            <canvas id="canvas-512" width="512" height="512" class="w-48 h-48 sm:w-56 sm:h-56 shadow-md"></canvas>
+                        </div>
+                        <div class="px-4 py-2.5 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-500 flex justify-between">
+                            <span>PWA Splash Screen / Store</span>
+                            <span id="file-label-512" class="font-mono text-slate-700">icon-512x512.png</span>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Manifest Snippet Helper -->
+                <div class="bg-slate-900 rounded-2xl p-4 sm:p-5 text-slate-300 shadow-sm">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">manifest.json Snippet</span>
+                        <button id="btn-copy-manifest" type="button" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1.5">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                            <span>Copy JSON</span>
+                        </button>
+                    </div>
+                    <pre id="manifest-code" class="text-xs font-mono text-emerald-400 overflow-x-auto leading-relaxed"></pre>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <script>
+        /**
+         * IconForge Application Logic
+         * Handles image ingestion, multi-step high-quality HTML5 Canvas rendering,
+         * live preview updates, blob size calculation, and JSZip archive generation.
+         */
+        document.addEventListener('DOMContentLoaded', () => {
+            // Application State
+            const state = {
+                sourceImage: null,
+                fitMode: 'contain',      // 'contain' | 'cover' | 'stretch'
+                paddingPercent: 0,       // 0 to 35
+                radiusPercent: 0,        // 0 to 50
+                transparentBg: true,
+                bgColor: '#ffffff',
+                prefix: 'icon',
+                blob192: null,
+                blob512: null
+            };
+
+            // DOM Elements
+            const dropzone = document.getElementById('dropzone');
+            const fileInput = document.getElementById('file-input');
+            const sourceMeta = document.getElementById('source-meta');
+            const fitButtons = document.querySelectorAll('.fit-btn');
+            const paddingSlider = document.getElementById('padding-slider');
+            const paddingValue = document.getElementById('padding-value');
+            const radiusSlider = document.getElementById('radius-slider');
+            const radiusValue = document.getElementById('radius-value');
+            const btnSquircle = document.getElementById('btn-squircle');
+            const btnCircle = document.getElementById('btn-circle');
+            const bgTransparentCheckbox = document.getElementById('bg-transparent');
+            const colorPickerRow = document.getElementById('color-picker-row');
+            const bgColorInput = document.getElementById('bg-color');
+            const bgHexInput = document.getElementById('bg-hex');
+            const swatchButtons = document.querySelectorAll('.swatch-btn');
+            const prefixInput = document.getElementById('filename-prefix');
+            const btnReset = document.getElementById('btn-reset');
+            const btnSample = document.getElementById('btn-sample');
+
+            const canvas192 = document.getElementById('canvas-192');
+            const canvas512 = document.getElementById('canvas-512');
+            const size192Label = document.getElementById('size-192');
+            const size512Label = document.getElementById('size-512');
+
+            const btnDownloadZip = document.getElementById('btn-download-zip');
+            const btnDl192 = document.getElementById('btn-dl-192');
+            const btnDl512 = document.getElementById('btn-dl-512');
+            const manifestCode = document.getElementById('manifest-code');
+            const btnCopyManifest = document.getElementById('btn-copy-manifest');
+
+            // Custom Toast Notification (Never uses alert())
+            function showToast(message, type = 'info') {
+                const container = document.getElementById('toast-container');
+                const toast = document.createElement('div');
+                const colors = type === 'error' 
+                    ? 'bg-rose-600 text-white' 
+                    : type === 'success' 
+                    ? 'bg-emerald-600 text-white' 
+                    : 'bg-slate-800 text-white';
+
+                toast.className = `${colors} px-4 py-2.5 rounded-xl shadow-lg text-xs font-medium flex items-center gap-2 transform transition-all duration-300 translate-y-2 opacity-0 pointer-events-auto`;
+                toast.textContent = message;
+                container.appendChild(toast);
+
+                requestAnimationFrame(() => {
+                    toast.classList.remove('translate-y-2', 'opacity-0');
+                });
+
+                setTimeout(() => {
+                    toast.classList.add('translate-y-2', 'opacity-0');
+                    setTimeout(() => toast.remove(), 300);
+                }, 3200);
+            }
+
+            // Format bytes to human-readable KB
+            function formatBytes(bytes) {
+                if (!bytes) return '0 KB';
+                return (bytes / 1024).toFixed(1) + ' KB';
+            }
+
+            // Sanitize filename prefix
+            function getCleanPrefix() {
+                const raw = prefixInput.value.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+                return raw || 'icon';
+            }
+
+            // Update all filename labels and manifest.json snippet
+            function updateFilenameLabels() {
+                const prefix = getCleanPrefix();
+                const name192 = `${prefix}-192x192.png`;
+                const name512 = `${prefix}-512x512.png`;
+
+                document.getElementById('preview-name-192').textContent = name192;
+                document.getElementById('preview-name-512').textContent = name512;
+                document.getElementById('file-label-192').textContent = name192;
+                document.getElementById('file-label-512').textContent = name512;
+                document.getElementById('zip-filename-label').textContent = `${prefix === 'icon' ? 'icons' : prefix + '-icons'}.zip`;
+
+                const snippet = {
+                    icons: [
+                        { src: `/${name192}`, type: "image/png", sizes: "192x192" },
+                        { src: `/${name512}`, type: "image/png", sizes: "512x512" }
+                    ]
+                };
+                manifestCode.textContent = JSON.stringify(snippet, null, 2);
+            }
+
+            // Draw a rounded rectangle path on a 2D context
+            function drawRoundedRectPath(ctx, x, y, width, height, radius) {
+                ctx.beginPath();
+                ctx.moveTo(x + radius, y);
+                ctx.lineTo(x + width - radius, y);
+                ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                ctx.lineTo(x + width, y + height - radius);
+                ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                ctx.lineTo(x + radius, y + height);
+                ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                ctx.lineTo(x, y + radius);
+                ctx.quadraticCurveTo(x, y, x + radius, y);
+                ctx.closePath();
+            }
+
+            /**
+             * Renders the source image onto a target square canvas at `size` x `size`
+             * applying background fill, corner radius clipping, padding, and fit mode.
+             */
+            function renderIconToCanvas(canvas, size) {
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, size, size);
+
+                // Enable highest quality resampling
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+
+                ctx.save();
+
+                // 1. Apply corner radius clipping mask if radius > 0
+                if (state.radiusPercent > 0) {
+                    const radiusPx = (state.radiusPercent / 100) * size;
+                    drawRoundedRectPath(ctx, 0, 0, size, size, radiusPx);
+                    ctx.clip();
+                }
+
+                // 2. Fill background if not transparent
+                if (!state.transparentBg) {
+                    ctx.fillStyle = state.bgColor;
+                    ctx.fillRect(0, 0, size, size);
+                }
+
+                // 3. Draw image if available
+                if (state.sourceImage) {
+                    const img = state.sourceImage;
+                    const srcW = img.naturalWidth || img.width || 512;
+                    const srcH = img.naturalHeight || img.height || 512;
+
+                    const padPx = (state.paddingPercent / 100) * size;
+                    const innerSize = Math.max(1, size - padPx * 2);
+
+                    if (state.fitMode === 'stretch') {
+                        ctx.drawImage(img, padPx, padPx, innerSize, innerSize);
+                    } else if (state.fitMode === 'contain') {
+                        const scale = Math.min(innerSize / srcW, innerSize / srcH);
+                        const drawW = srcW * scale;
+                        const drawH = srcH * scale;
+                        const dx = padPx + (innerSize - drawW) / 2;
+                        const dy = padPx + (innerSize - drawH) / 2;
+                        ctx.drawImage(img, dx, dy, drawW, drawH);
+                    } else if (state.fitMode === 'cover') {
+                        const scale = Math.max(innerSize / srcW, innerSize / srcH);
+                        const drawW = srcW * scale;
+                        const drawH = srcH * scale;
+                        const dx = padPx + (innerSize - drawW) / 2;
+                        const dy = padPx + (innerSize - drawH) / 2;
+                        ctx.drawImage(img, dx, dy, drawW, drawH);
+                    }
+                }
+
+                ctx.restore();
+            }
+
+            // Re-render both canvases and update PNG Blobs & file sizes
+            function updatePreviews() {
+                renderIconToCanvas(canvas192, 192);
+                renderIconToCanvas(canvas512, 512);
+
+                canvas192.toBlob((blob) => {
+                    state.blob192 = blob;
+                    size192Label.textContent = formatBytes(blob ? blob.size : 0);
+                }, 'image/png');
+
+                canvas512.toBlob((blob) => {
+                    state.blob512 = blob;
+                    size512Label.textContent = formatBytes(blob ? blob.size : 0);
+                }, 'image/png');
+            }
+
+            // Load an Image object from a URL or DataURL
+            function loadImageFromUrl(url, labelText = '') {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                    state.sourceImage = img;
+                    const w = img.naturalWidth || 512;
+                    const h = img.naturalHeight || 512;
+                    sourceMeta.textContent = labelText || `${w} × ${h} px`;
+                    sourceMeta.classList.remove('hidden');
+                    updatePreviews();
+                };
+                img.onerror = () => {
+                    showToast('Failed to decode image file. Please try another format.', 'error');
+                };
+                img.src = url;
+            }
+
+            // Handle File object from input or dropzone
+            function handleFile(file) {
+                if (!file) return;
+                if (!file.type.startsWith('image/')) {
+                    showToast('Please upload a valid image file (PNG, JPG, WEBP, SVG, GIF).', 'error');
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    loadImageFromUrl(e.target.result, `${file.name} (${formatBytes(file.size)})`);
+                    showToast('Image loaded & icons generated!', 'success');
+                };
+                reader.onerror = () => {
+                    showToast('Error reading file from disk.', 'error');
+                };
+                reader.readAsDataURL(file);
+            }
+
+            // Generate a crisp built-in sample SVG logo so previews work immediately on page load
+            function loadBuiltInSampleLogo() {
+                const svgString = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+                    <defs>
+                        <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#6366f1"/>
+                            <stop offset="100%" stop-color="#3b82f6"/>
+                        </linearGradient>
+                        <linearGradient id="bolt" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stop-color="#ffffff"/>
+                            <stop offset="100%" stop-color="#e0e7ff"/>
+                        </linearGradient>
+                    </defs>
+                    <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+                    <circle cx="256" cy="256" r="165" fill="none" stroke="#ffffff" stroke-opacity="0.2" stroke-width="18"/>
+                    <path d="M282 118L154 276h98l-22 118 128-158h-98l22-118z" fill="url(#bolt)"/>
+                </svg>`;
+                const encoded = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString.trim());
+                loadImageFromUrl(encoded, 'sample-logo.svg (512×512)');
+            }
+
+            // Trigger browser download for a Blob
+            function triggerDownload(blob, filename) {
+                if (!blob) {
+                    showToast('Image not ready yet. Please wait a moment.', 'error');
+                    return;
+                }
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }
+
+            // --- Event Listeners ---
+
+            // Dropzone Click & Drag/Drop
+            dropzone.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    handleFile(e.target.files[0]);
+                }
+            });
+
+            ['dragenter', 'dragover'].forEach(evtName => {
+                dropzone.addEventListener(evtName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropzone.classList.add('border-brand-500', 'bg-brand-50/50');
+                });
+            });
+
+            ['dragleave', 'drop'].forEach(evtName => {
+                dropzone.addEventListener(evtName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropzone.classList.remove('border-brand-500', 'bg-brand-50/50');
+                });
+            });
+
+            dropzone.addEventListener('drop', (e) => {
+                const files = e.dataTransfer?.files;
+                if (files && files[0]) {
+                    handleFile(files[0]);
+                }
+            });
+
+            // Fit Mode Buttons
+            fitButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    state.fitMode = btn.dataset.fit;
+                    fitButtons.forEach(b => {
+                        b.classList.remove('bg-white', 'text-brand-600', 'shadow-xs', 'font-semibold');
+                        b.classList.add('text-slate-600', 'font-medium');
+                    });
+                    btn.classList.add('bg-white', 'text-brand-600', 'shadow-xs', 'font-semibold');
+                    btn.classList.remove('text-slate-600', 'font-medium');
+                    updatePreviews();
+                });
+            });
+
+            // Padding Slider
+            paddingSlider.addEventListener('input', (e) => {
+                state.paddingPercent = parseInt(e.target.value, 10);
+                paddingValue.textContent = `${state.paddingPercent}%`;
+                updatePreviews();
+            });
+
+            // Radius Slider & Quick Presets
+            radiusSlider.addEventListener('input', (e) => {
+                state.radiusPercent = parseInt(e.target.value, 10);
+                radiusValue.textContent = `${state.radiusPercent}%`;
+                updatePreviews();
+            });
+
+            btnSquircle.addEventListener('click', () => {
+                state.radiusPercent = 22;
+                radiusSlider.value = 22;
+                radiusValue.textContent = '22%';
+                updatePreviews();
+            });
+
+            btnCircle.addEventListener('click', () => {
+                state.radiusPercent = 50;
+                radiusSlider.value = 50;
+                radiusValue.textContent = '50%';
+                updatePreviews();
+            });
+
+            // Background Transparency & Color Controls
+            bgTransparentCheckbox.addEventListener('change', (e) => {
+                state.transparentBg = e.target.checked;
+                if (state.transparentBg) {
+                    colorPickerRow.classList.add('opacity-40', 'pointer-events-none');
+                } else {
+                    colorPickerRow.classList.remove('opacity-40', 'pointer-events-none');
+                }
+                updatePreviews();
+            });
+
+            bgColorInput.addEventListener('input', (e) => {
+                state.bgColor = e.target.value;
+                bgHexInput.value = e.target.value.toUpperCase();
+                updatePreviews();
+            });
+
+            bgHexInput.addEventListener('input', (e) => {
+                let val = e.target.value.trim();
+                if (!val.startsWith('#')) val = '#' + val;
+                if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+                    state.bgColor = val;
+                    bgColorInput.value = val;
+                    updatePreviews();
+                }
+            });
+
+            swatchButtons.forEach(swatch => {
+                swatch.addEventListener('click', () => {
+                    const color = swatch.dataset.color;
+                    state.bgColor = color;
+                    bgColorInput.value = color;
+                    bgHexInput.value = color.toUpperCase();
+                    updatePreviews();
+                });
+            });
+
+            // Filename Prefix Input
+            prefixInput.addEventListener('input', updateFilenameLabels);
+
+            // Reset Styling Defaults
+            btnReset.addEventListener('click', () => {
+                state.fitMode = 'contain';
+                state.paddingPercent = 0;
+                state.radiusPercent = 0;
+                state.transparentBg = true;
+                state.bgColor = '#ffffff';
+                prefixInput.value = 'icon';
+
+                // Sync UI controls
+                fitButtons.forEach(b => {
+                    const active = b.dataset.fit === 'contain';
+                    b.classList.toggle('bg-white', active);
+                    b.classList.toggle('text-brand-600', active);
+                    b.classList.toggle('shadow-xs', active);
+                    b.classList.toggle('font-semibold', active);
+                    b.classList.toggle('text-slate-600', !active);
+                    b.classList.toggle('font-medium', !active);
+                });
+                paddingSlider.value = 0;
+                paddingValue.textContent = '0%';
+                radiusSlider.value = 0;
+                radiusValue.textContent = '0%';
+                bgTransparentCheckbox.checked = true;
+                colorPickerRow.classList.add('opacity-40', 'pointer-events-none');
+                bgColorInput.value = '#ffffff';
+                bgHexInput.value = '#FFFFFF';
+
+                updateFilenameLabels();
+                updatePreviews();
+                showToast('Styling options reset to defaults.');
+            });
+
+            // Load Sample Logo Button
+            btnSample.addEventListener('click', () => {
+                loadBuiltInSampleLogo();
+                showToast('Sample vector logo loaded.');
+            });
+
+            // Individual PNG Downloads
+            btnDl192.addEventListener('click', () => {
+                const prefix = getCleanPrefix();
+                triggerDownload(state.blob192, `${prefix}-192x192.png`);
+            });
+
+            btnDl512.addEventListener('click', () => {
+                const prefix = getCleanPrefix();
+                triggerDownload(state.blob512, `${prefix}-512x512.png`);
+            });
+
+            // Bundle both PNGs into a single ZIP via JSZip
+            btnDownloadZip.addEventListener('click', async () => {
+                if (typeof JSZip === 'undefined') {
+                    showToast('JSZip library failed to load. Check your network connection.', 'error');
+                    return;
+                }
+                if (!state.blob192 || !state.blob512) {
+                    showToast('Generating PNG files, please try again in a second.', 'error');
+                    return;
+                }
+
+                try {
+                    const zip = new JSZip();
+                    const prefix = getCleanPrefix();
+                    const name192 = `${prefix}-192x192.png`;
+                    const name512 = `${prefix}-512x512.png`;
+                    const zipName = `${prefix === 'icon' ? 'icons' : prefix + '-icons'}.zip`;
+
+                    zip.file(name192, state.blob192);
+                    zip.file(name512, state.blob512);
+
+                    const zipBlob = await zip.generateAsync({ type: 'blob' });
+                    triggerDownload(zipBlob, zipName);
+                    showToast(`Downloaded ${zipName} containing ${name192} & ${name512}!`, 'success');
+                } catch (err) {
+                    console.error(err);
+                    showToast('Error creating ZIP archive.', 'error');
+                }
+            });
+
+            // Copy manifest.json snippet to clipboard (using execCommand fallback for iframe compatibility)
+            btnCopyManifest.addEventListener('click', () => {
+                const textArea = document.createElement('textarea');
+                textArea.value = manifestCode.textContent;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-9999px';
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showToast('Copied manifest.json snippet to clipboard!', 'success');
+                } catch (err) {
+                    showToast('Could not copy snippet.', 'error');
+                }
+                document.body.removeChild(textArea);
+            });
+
+            // Initialize App on Load
+            updateFilenameLabels();
+            loadBuiltInSampleLogo();
+        });
+    </script>
+</body>
+</html>
